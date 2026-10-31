@@ -1,29 +1,27 @@
-import { config } from "../config/config.js";
-
 export default {
-    name: "messageCreate",
+    name: "interactionCreate",
 
-    async execute(message, client) {
-        if (message.author.bot || !message.guild) return;
+    async execute(interaction, client) {
+        if (!interaction.isChatInputCommand()) return;
 
-        if (!message.content.startsWith(config.prefix)) return;
-
-        const args = message.content
-            .slice(config.prefix.length)
-            .trim()
-            .split(/\s+/);
-
-        const name = args.shift()?.toLowerCase();
-        if (!name) return;
-
-        const command = client.commands.get(name);
-        if (!command?.prefixExecute) return;
+        const command = client.commands.get(interaction.commandName);
+        if (!command) return;
 
         try {
-            await command.prefixExecute(message, args, client);
+            await command.execute(interaction, client);
         } catch (error) {
-            console.error(error);
-            await message.reply("Something went wrong.");
+            console.error("[COMMAND ERROR]", error);
+
+            const response = {
+                content: "An error occurred while executing this command.",
+                ephemeral: true
+            };
+
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp(response);
+            } else {
+                await interaction.reply(response);
+            }
         }
     }
 };
