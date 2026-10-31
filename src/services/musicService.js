@@ -1,68 +1,111 @@
 const queues = new Map();
 
-function getQueue(guildId) {
+function createQueue(guildId) {
     if (!queues.has(guildId)) {
         queues.set(guildId, {
             tracks: [],
             previous: [],
             current: null,
+            player: null,
+            textChannel: null,
+            voiceChannel: null,
+            volume: 100,
             loop: "off",
             autoplay: false,
-            volume: 100,
-            player: null,
-            textChannel: null
+            processing: false,
+            skipRequested: false
         });
     }
 
     return queues.get(guildId);
 }
 
-async function playNext(client, guildId) {
-    const data = getQueue(guildId);
+function getQueue(guildId) {
+    return queues.get(guildId) || null;
+}
 
-    let track;
+function saveHistory(data, track) {
+    if (!track) return;
 
-    if (data.loop === "track" && data.current) {
-        track = data.current;
-    } else {
-        if (data.current) {
-            data.previous.push(data.current);
-            if (data.previous.length > 50) data.previous.shift();
-        }
+    data.previous.push(track);
 
-        track = data.tracks.shift();
-
-        if (!track && data.loop === "queue" && data.previous.length) {
-            data.tracks = [...data.previous];
-            data.previous = [];
-            track = data.tracks.shift();
-        }
-    }
-
-    if (!track) {
-        data.current = null;
-        return;
-    }
-
-    data.current = track;
-
-    await data.player.playTrack({
-        track: { encoded: track.encoded }
-    });
-
-    if (data.textChannel) {
-        await data.textChannel.send(
-            `🎵 Now Playing: **${track.title}**`
-        ).catch(() => {});
+    if (data.previous.length > 50) {
+        data.previous.shift();
     }
 }
 
-export async function playMusic(client, interaction, query) {
-    const guildId = interaction.guildId || interaction.guild.id;
-    const member = interaction.member;
+async function playNext(guildId) {
+    const data = getQueue(guildId);
+
+    if (!data || !data.player || data.processing) return;
+
+    data.processing = true;
+
+    try {
+        let track;
+
+        if (data.loop === "track" && data.current && !data.skipRequested) {
+            track = data.current;
+        } else {
+            if (data.current) {
+                saveHistory(data, data.current);
+            }
+
+            if (data.skipRequested) {
+                data.skipRequested = false;
+            }
+
+            track = data.tracks.shift();
+
+            if (!track && data.loop === "queue" && data.previous.length) {
+                data.tracks = [...data.previous];
+                data.previous = [];
+                track = data.tracks.shift();
+            }
+        }
+
+        if (!track) {
+            data.current = null;
+            return;
+        }
+
+        data.current = track;
+
+        await data.player.setGlobalVolume(data.volume);
+
+        await data.player.playTrack({
+            track: {
+                encoded: track.encoded
+            }
+        });
+
+        if (data.textChannel) {
+            await data.textChannel.send({
+                content: `🎵 **Now Playing:** ${track.title}`
+            }).catch(() => {});
+        }
+    } catch (error) {
+        console.error("[SONVEX PLAY ERROR]", error);
+
+        data.current = null;
+
+        if (data.tracks.length) {
+            await playNext(guildId);
+        }
+    } finally {
+        data.processing = false;
+    }
+}
+
+export async function playMusic(client, context, query) {
+    const guild = context.guild;
+    const guildId = guild.id;
+    const member = context.member;
     const voice = member.voice?.channel;
 
-    if (!voice) throw new Error("JOIN_VOICE");
+    if (!voice) {
+        throw new Error("JOIN_VOICE");
+    }
 
     const node = client.shoukaku.options.nodeResolver(
         client.shoukaku.nodes
@@ -72,17 +115,24 @@ export async function playMusic(client, interaction, query) {
         throw new Error("LAVALINK_OFFLINE");
     }
 
-    const data = getQueue(guildId);
+    const data = createQueue(guildId);
+
+    if (data.voiceChannel && data.voiceChannel !== voice.id) {
+        if (data.current) {
+            throw new Error("DIFFERENT_VOICE_CHANNEL");
+        }
+    }
 
     const player = await client.shoukaku.joinVoiceChannel({
         guildId,
         channelId: voice.id,
-        shardId: interaction.guild.shardId,
+        shardId: guild.shardId,
         deaf: true
     });
 
     data.player = player;
-    data.textChannel = interaction.channel;
+    data.voiceChannel = voice.id;
+    data.textChannel = context.channel;
 
     const identifier = /^https?:\/\//i.test(query)
         ? query
@@ -100,28 +150,38 @@ export async function playMusic(client, interaction, query) {
         author: track.info.author,
         uri: track.info.uri,
         length: track.info.length,
-        requester: interaction.user.id
+        requester: context.user.id
     }));
 
-    if (!data.current) {
-        data.current = null;
-        data.tracks.push(...tracks);
-        await playNext(client, guildId);
-        return { ...data.current, queued: false };
-    }
+    const shouldStart = !data.current;
 
     data.tracks.push(...tracks);
 
-    return { ...tracks[0], queued: true };
+    if (shouldStart) {
+        await playNext(guildId);
+
+        return {
+            ...tracks[0],
+            queued: false
+        };
+    }
+
+    return {
+        ...tracks[0],
+        queued: true
+    };
 }
 
 export async function handleTrackEnd(client, player, event) {
-    const data = queues.get(player.guildId);
+    const data = getQueue(player.guildId);
 
-    if (!data) return;
+    if (!data || data.player !== player) return;
 
-    if (event.reason === "FINISHED" || event.reason === "LOAD_FAILED") {
-        await playNext(client, player.guildId);
+    if (
+        event.reason === "FINISHED" ||
+        event.reason === "LOAD_FAILED"
+    ) {
+        await playNext(player.guildId);
     }
 }
 
@@ -129,25 +189,81 @@ export function getQueueData(guildId) {
     return getQueue(guildId);
 }
 
-export async function skipMusic(client, guildId) {
+export async function pauseMusic(guildId) {
     const data = getQueue(guildId);
 
-    if (!data.current) throw new Error("NO_PLAYER");
-
-    if (!data.tracks.length && data.loop !== "track") {
-        data.current = null;
-        await data.player.stopTrack();
-        return;
+    if (!data?.player || !data.current) {
+        throw new Error("NO_PLAYER");
     }
 
-    await data.player.stopTrack();
-    await playNext(client, guildId);
+    await data.player.setPaused(true);
 }
 
-export async function removeTrack(guildId, position) {
+export async function resumeMusic(guildId) {
     const data = getQueue(guildId);
 
-    if (position < 1 || position > data.tracks.length) {
+    if (!data?.player || !data.current) {
+        throw new Error("NO_PLAYER");
+    }
+
+    await data.player.setPaused(false);
+}
+
+export async function stopMusic(guildId) {
+    const data = getQueue(guildId);
+
+    if (!data?.player) {
+        throw new Error("NO_PLAYER");
+    }
+
+    data.tracks = [];
+    data.previous = [];
+    data.current = null;
+    data.skipRequested = false;
+
+    await data.player.stopTrack();
+}
+
+export async function skipMusic(guildId) {
+    const data = getQueue(guildId);
+
+    if (!data?.player || !data.current) {
+        throw new Error("NO_PLAYER");
+    }
+
+    data.skipRequested = true;
+
+    await data.player.stopTrack();
+}
+
+export async function playPrevious(guildId) {
+    const data = getQueue(guildId);
+
+    if (!data?.player || !data.previous.length) {
+        throw new Error("NO_PREVIOUS");
+    }
+
+    const previous = data.previous.pop();
+
+    if (data.current) {
+        data.tracks.unshift(data.current);
+    }
+
+    data.current = previous;
+
+    await data.player.playTrack({
+        track: {
+            encoded: previous.encoded
+        }
+    });
+
+    return previous;
+}
+
+export function removeTrack(guildId, position) {
+    const data = getQueue(guildId);
+
+    if (!data || position < 1 || position > data.tracks.length) {
         throw new Error("INVALID_POSITION");
     }
 
@@ -156,67 +272,89 @@ export async function removeTrack(guildId, position) {
 
 export function clearQueue(guildId) {
     const data = getQueue(guildId);
-    const count = data.tracks.length;
+
+    if (!data) throw new Error("NO_QUEUE");
+
     data.tracks = [];
-    return count;
 }
 
 export function shuffleQueue(guildId) {
-    const tracks = getQueue(guildId).tracks;
+    const data = getQueue(guildId);
 
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+    if (!data || data.tracks.length < 2) {
+        throw new Error("NOT_ENOUGH_TRACKS");
     }
 
-    return tracks.length;
+    for (let i = data.tracks.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+
+        [data.tracks[i], data.tracks[j]] = [
+            data.tracks[j],
+            data.tracks[i]
+        ];
+    }
 }
 
 export function moveTrack(guildId, from, to) {
-    const tracks = getQueue(guildId).tracks;
+    const data = getQueue(guildId);
 
     if (
-        from < 1 || to < 1 ||
-        from > tracks.length || to > tracks.length
+        !data ||
+        from < 1 ||
+        to < 1 ||
+        from > data.tracks.length ||
+        to > data.tracks.length
     ) {
         throw new Error("INVALID_POSITION");
     }
 
-    const [track] = tracks.splice(from - 1, 1);
-    tracks.splice(to - 1, 0, track);
+    const [track] = data.tracks.splice(from - 1, 1);
+
+    data.tracks.splice(to - 1, 0, track);
+
+    return track;
 }
 
 export function setLoop(guildId, mode) {
     const data = getQueue(guildId);
 
-    if (!["off", "track", "queue"].includes(mode)) {
-        throw new Error("INVALID_LOOP");
+    if (!data || !["off", "track", "queue"].includes(mode)) {
+        throw new Error("INVALID_LOOP_MODE");
     }
 
     data.loop = mode;
+
     return mode;
 }
 
 export function setAutoplay(guildId, enabled) {
     const data = getQueue(guildId);
+
+    if (!data) throw new Error("NO_QUEUE");
+
     data.autoplay = enabled;
+
     return enabled;
 }
 
-export async function playPrevious(client, guildId) {
+export async function setVolume(guildId, volume) {
     const data = getQueue(guildId);
 
-    if (!data.previous.length) {
-        throw new Error("NO_PREVIOUS");
+    if (!data?.player) {
+        throw new Error("NO_PLAYER");
     }
 
-    if (data.current) data.tracks.unshift(data.current);
+    if (!Number.isInteger(volume) || volume < 1 || volume > 100) {
+        throw new Error("INVALID_VOLUME");
+    }
 
-    data.current = data.previous.pop();
+    data.volume = volume;
 
-    await data.player.playTrack({
-        track: { encoded: data.current.encoded }
-    });
+    await data.player.setGlobalVolume(volume);
 
-    return data.current;
+    return volume;
+}
+
+export function getCurrentTrack(guildId) {
+    return getQueue(guildId)?.current || null;
 }
