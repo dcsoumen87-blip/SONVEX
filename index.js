@@ -1,4 +1,5 @@
 import "dotenv/config";
+
 import {
     Client,
     Collection,
@@ -8,17 +9,20 @@ import {
 import { loadCommands } from "./src/handlers/commandHandler.js";
 import { loadEvents } from "./src/handlers/eventHandler.js";
 import { createLavalink } from "./src/lavalink/manager.js";
+import { registerPlayerEvents } from "./src/events/playerEvents.js";
 
-const required = [
+const requiredEnv = [
     "DISCORD_TOKEN",
+    "CLIENT_ID",
     "LAVALINK_HOST",
     "LAVALINK_PORT",
     "LAVALINK_PASSWORD"
 ];
 
-for (const key of required) {
+for (const key of requiredEnv) {
     if (!process.env[key]) {
-        throw new Error(`${key} is missing.`);
+        console.error(`[ENV ERROR] ${key} is missing.`);
+        process.exit(1);
     }
 }
 
@@ -32,10 +36,46 @@ const client = new Client({
 });
 
 client.commands = new Collection();
+client.prefix = process.env.PREFIX || "!";
 
-await loadCommands(client);
-await loadEvents(client);
+async function startBot() {
+    try {
+        console.log("[SONVEX] Initializing...");
 
-createLavalink(client);
+        // Load commands
+        await loadCommands(client);
+        console.log("[SONVEX] Commands loaded.");
 
-await client.login(process.env.DISCORD_TOKEN);
+        // Load Discord events
+        await loadEvents(client);
+        console.log("[SONVEX] Discord events loaded.");
+
+        // Initialize Lavalink
+        createLavalink(client);
+        console.log("[SONVEX] Lavalink manager initialized.");
+
+        // Register music player events
+        registerPlayerEvents(client);
+
+        // Login
+        await client.login(process.env.DISCORD_TOKEN);
+
+    } catch (error) {
+        console.error("[SONVEX STARTUP ERROR]", error);
+        process.exit(1);
+    }
+}
+
+client.on("error", error => {
+    console.error("[DISCORD CLIENT ERROR]", error);
+});
+
+process.on("unhandledRejection", error => {
+    console.error("[UNHANDLED REJECTION]", error);
+});
+
+process.on("uncaughtException", error => {
+    console.error("[UNCAUGHT EXCEPTION]", error);
+});
+
+startBot();
