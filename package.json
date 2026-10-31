@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "discord.js": "^14.0.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "shoukaku": "^4.3.0"
   },
   "engines": {
     "node": ">=20.0.0"
