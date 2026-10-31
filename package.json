@@ -1,0 +1,18 @@
+{
+  "name": "sonvex",
+  "version": "1.0.0",
+  "description": "SONVEX - Your Music. Your Vibe. Your World.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
