@@ -1,5 +1,11 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, Collection, GatewayIntentBits } from "discord.js";
+import { loadCommands } from "./src/handlers/commandHandler.js";
+import { loadEvents } from "./src/handlers/eventHandler.js";
+
+if (!process.env.DISCORD_TOKEN) {
+    throw new Error("DISCORD_TOKEN is missing.");
+}
 
 const client = new Client({
     intents: [
@@ -10,8 +16,9 @@ const client = new Client({
     ]
 });
 
-client.once("ready", () => {
-    console.log(`SONVEX ONLINE: ${client.user.tag}`);
-});
+client.commands = new Collection();
 
-client.login(process.env.DISCORD_TOKEN);
+await loadCommands(client);
+await loadEvents(client);
+
+await client.login(process.env.DISCORD_TOKEN);
