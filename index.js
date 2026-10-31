@@ -9,16 +9,17 @@ import { loadCommands } from "./src/handlers/commandHandler.js";
 import { loadEvents } from "./src/handlers/eventHandler.js";
 import { createLavalink } from "./src/lavalink/manager.js";
 
-if (!process.env.DISCORD_TOKEN) {
-    throw new Error("DISCORD_TOKEN is missing.");
-}
+const required = [
+    "DISCORD_TOKEN",
+    "LAVALINK_HOST",
+    "LAVALINK_PORT",
+    "LAVALINK_PASSWORD"
+];
 
-if (
-    !process.env.LAVALINK_HOST ||
-    !process.env.LAVALINK_PORT ||
-    !process.env.LAVALINK_PASSWORD
-) {
-    throw new Error("Lavalink configuration is missing.");
+for (const key of required) {
+    if (!process.env[key]) {
+        throw new Error(`${key} is missing.`);
+    }
 }
 
 const client = new Client({
