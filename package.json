@@ -1,12 +1,13 @@
 {
   "name": "sonvex",
   "version": "1.0.0",
-  "description": "SONVEX - Your Music. Your Vibe. Your World.",
+  "description": "Your Music. Your Vibe. Your World.",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "deploy": "node scripts/deploy-commands.js"
   },
   "dependencies": {
     "discord.js": "^14.0.0",
