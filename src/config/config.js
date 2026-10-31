@@ -1,5 +1,5 @@
 export const config = {
+    name: "SONVEX",
     prefix: process.env.PREFIX || "!",
-    developerID: "1521945104217280652",
-    botName: "SONVEX"
+    developerID: "1521945104217280652"
 };
