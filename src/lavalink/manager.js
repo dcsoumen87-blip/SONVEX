@@ -1,21 +1,19 @@
 import { Shoukaku, Connectors } from "shoukaku";
 
 export function createLavalink(client) {
-    const nodes = [{
-        name: "SONVEX-NODE-1",
-        url: `${process.env.LAVALINK_HOST}:${process.env.LAVALINK_PORT}`,
-        auth: process.env.LAVALINK_PASSWORD,
-        secure: process.env.LAVALINK_SECURE === "true"
-    }];
-
     const shoukaku = new Shoukaku(
         new Connectors.DiscordJS(client),
-        nodes
+        [{
+            name: "SONVEX",
+            url: `${process.env.LAVALINK_HOST}:${process.env.LAVALINK_PORT}`,
+            auth: process.env.LAVALINK_PASSWORD,
+            secure: process.env.LAVALINK_SECURE === "true"
+        }]
     );
 
     client.shoukaku = shoukaku;
 
-    shoukaku.on("ready", (name) => {
+    shoukaku.on("ready", name => {
         console.log(`[LAVALINK] ${name} Connected`);
     });
 
@@ -27,8 +25,8 @@ export function createLavalink(client) {
         console.log(`[LAVALINK] ${name} Closed: ${code} ${reason}`);
     });
 
-    shoukaku.on("disconnect", (name, count) => {
-        console.log(`[LAVALINK] ${name} Disconnected: ${count}`);
+    shoukaku.on("disconnect", name => {
+        console.log(`[LAVALINK] ${name} Disconnected`);
     });
 
     return shoukaku;
